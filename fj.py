@@ -8,14 +8,19 @@ import pygame
 import sys
 from sys import exit
 from pygame.locals import *
+from copy import deepcopy
 #所有pass的地方未完善
 
-debug = 1
+debug = 0
+
+help_info = '按键 a:重新开始 s:喊停 r:悔棋 h:帮助 q:退出游戏 按q退出帮助'
 
 #按键设置
 key_start = K_a
 key_stop = K_s
 key_regret = K_r
+key_help = K_h
+key_quit = K_q
 #
 
 #模式设置
@@ -26,7 +31,12 @@ MOVE = 3 #表示已选好棋子，等待落子
 #一些参数
 EPS = 50
 FPS = 30
-BLACK = (200,101,50)
+BLACK = (255,255,255)
+score_size = 48 #显示分数的字体大小
+x_bias = 75 #棋盘坐上角坐标
+y_bias = 75
+help_position = (25,150)
+flag_error = 0
 
 chosse_image_filename = 'ball.png' #表示棋子被选中的方格
 dot_image_filename = 'dot.jpg'
@@ -36,7 +46,29 @@ blue_score = (12*50,50)
 chosse_image_size = (50,50) #表示棋子被选中的方格
 dot_image_size = (10,10)
 ball_image_size = (35,35)
+#backgroud_filename = 'background.png'
 backgroud_filename = 'qipan5.jpg'
+
+def query(content):
+    #弹窗，显示content里的内容
+    import tkinter as tk
+    from tkinter import messagebox        #引入弹窗库
+    window=tk.Tk()
+    window.attributes("-alpha", 0.0)
+    window.wm_attributes('-topmost',1)
+    ret = messagebox.askokcancel('提示', content)
+    window.destroy()
+    return ret
+
+def pop_window(content):
+    #弹窗，显示content里的内容
+    import tkinter as tk
+    from tkinter import messagebox        #引入弹窗库
+    window=tk.Tk()
+    window.attributes("-alpha", 0.0)
+    window.wm_attributes('-topmost',1)
+    messagebox.showinfo(title='error',message=content)
+    window.destroy()
 
 def between(a,b,c):
     return a<b and b<c
@@ -46,6 +78,105 @@ def tolerable(target,pos):
     if abs(pos[0]-target[0])+abs(pos[1]-target[1]) < EPS:
         return True
     return False
+
+def middle_to_behind(expression):  
+    #中缀转后缀
+    result = []             # 结果列表
+    stack = []              # 栈
+    for item in expression: 
+        if item.isnumeric():      # 如果当前字符为数字那么直接放入结果列表
+            result.append(item) 
+        else:                     # 如果当前字符为一切其他操作符
+            if len(stack) == 0:   # 如果栈空，直接入栈
+                stack.append(item)
+            elif item in '*/(':   # 如果当前字符为*/（，直接入栈
+                stack.append(item)
+            elif item == ')':     # 如果右括号则全部弹出（碰到左括号停止）
+                if len(stack)==0:
+                    return "0-1"
+                t = stack.pop()
+                while t != '(':   
+                    result.append(t)
+                    if len(stack)==0:
+                        return "0-1"
+                    t = stack.pop()
+            # 如果当前字符为加减且栈顶为乘除，则开始弹出
+            elif item in '+-' and len(stack)>0 and stack[len(stack)-1] in '*/':
+                if stack.count('(') == 0:           # 如果有左括号，弹到左括号为止     
+                    while stack:
+                        result.append(stack.pop())
+                else:                               # 如果没有左括号，弹出所有
+                    if len(stack)==0:
+                        return "0-1"
+                    t = stack.pop()
+                    while t != '(':
+                        result.append(t)
+                        if len(stack)==0:
+                            return "0-1"
+                        t = stack.pop()
+                    stack.append('(')
+                stack.append(item)  # 弹出操作完成后将‘+-’入栈
+            else:
+                stack.append(item)# 其余情况直接入栈（如当前字符为+，栈顶为+-）
+
+    # 表达式遍历完了，但是栈中还有操作符不满足弹出条件，把栈中的东西全部弹出
+    while stack:
+        result.append(stack.pop())
+    # 返回字符串
+    return "".join(result)
+
+def sub(st,ch):
+    ret = ''
+    fir = 1
+    for i in st:
+        if i==ch and fir:
+            continue
+        else :
+            ret += i
+    return ret
+
+def my_eval(expression,num):
+    #分析用户输入的表达式
+    #status -1:非法字符
+    #status -5:非法表达式
+    #status -6:除0
+    #status -7:有余数
+    global flag_error
+    flag_error = 0
+    ex = []
+    valid = " +-*/()"
+    is_num = "0123456789"
+    for i in num:
+        valid += str(i)
+    length = len(expression)
+    for i in range(1,length):
+        if expression[i-1] in is_num and expression[i] in is_num:
+            pop_window("非法字符")
+            return -1
+    for ch in expression:
+        if ch not in valid:
+            pop_window("非法字符")
+            return -1
+        if ch != ' ':
+            ex.append(ch)
+        if ch in is_num:
+            valid = sub(valid,ch)
+    poland = middle_to_behind(ex)
+    ex = []
+    for i in poland:
+        if i in is_num:
+            ex.append(int(i))
+        else:
+            ex.append(i)
+    ret = calculate(ex)
+    if flag_error and ret == -5:
+        pop_window("非法表达式")
+    if flag_error and ret == -6:
+        pop_window("除0")
+    if flag_error and ret == -7:
+        pop_window("有余数")
+    return ret
+
 
 def get_txt(num = []):
     #获取用户输入的字符串
@@ -68,7 +199,8 @@ def get_txt(num = []):
                 text='请输入一个合法的表达式:\n'+
                 '1.表达式仅能包含以下数字  '+number_available+'\n'+
                 '2.表达式只能包含以下运算符  +  -  *  /  (  ) \n'+
-                '3.使用除法时不得有余数，否则视为非法')
+                '3.使用除法时不得有余数，否则视为非法\n'
+                '4.请不要输入除数字及运算符，空格外的其他字符，否则视为非法')
             lb.pack()
             # 创建Entry组件
             self.st = tkinter.StringVar()
@@ -80,12 +212,13 @@ def get_txt(num = []):
             self.entry.pack(fill=tkinter.BOTH, expand=tkinter.YES) 
             tkinter.Button(self.master,text='ok',command=self.master.quit).pack()
     root = tkinter.Tk()
-    root.title("Entry测试")
+    root.wm_attributes('-topmost',1) #使窗口在pygame窗口之上
+    root.title("enter expression")
     w = App(root,num)
     root.mainloop()
-    root.destroy()
+    root.destroy() #使得按下ok后能关闭弹窗
 
-    return eval(w.st.get()) #TODO use my own evaluation
+    return my_eval(w.st.get(),num) #TODO use my own evaluation
 
 
 #生成棋子像素坐标
@@ -97,13 +230,13 @@ def make_coordinate():
     for i in range(8):
         for j in range(8):
             std = coordinate_transform((i,j))
-            cor[i][j] = std[1]*width,std[0]*height
+            cor[i][j] = std[1]*width+x_bias,std[0]*height+y_bias
     return cor
 
 #加载棋子图片
 def load_balls():
     balls = []
-    balls.append(Image('0.jpg',ball_image_size))
+    balls.append(Image('000.jpg',(0,0)))
     for i in range(1,21):
         balls.append(Image(str(i)+'.png',ball_image_size))
     return balls
@@ -118,30 +251,60 @@ def inverse_coordinate_transform(coor):
 
 #计算后缀表达式的值
 def calculate(expression):
-    ret = 0
+    #status -5:非法表达式
+    #status -6:除0
+    #status -7:有余数
+    global flag_error
     stack = []
     for i in expression:
         if i=='+':
+            if len(stack)<2:
+                flag_error = 1
+                return -5
             b = stack.pop()
             a = stack.pop()
+            if type(a)!=int or type(b)!=int:
+                return -5
             stack.append(a+b)
         elif i=='*':
+            if len(stack)<2:
+                flag_error = 1
+                return -5
             b = stack.pop()
             a = stack.pop()
+            if type(a)!=int or type(b)!=int:
+                return -5
             stack.append(a*b)
         elif i=='-':
+            if len(stack)<2:
+                flag_error = 1
+                return -5
             b = stack.pop()
             a = stack.pop()
+            if type(a)!=int or type(b)!=int:
+                return -5
             stack.append(a-b)
         elif i=='/':
+            if len(stack)<2:
+                flag_error = 1
+                return -5
             b = stack.pop()
             a = stack.pop()
+            if type(a)!=int or type(b)!=int:
+                return -5
             #division by zero
             if 0==b :
-                return -1
+                flag_error = 1
+                return -6
+            if a%b!=0:
+                flag_error = 1
+                return -7
             stack.append(a/b)
         else:
             stack.append(i)
+    if len(stack)!=1:
+        flag_error = 1
+        return -5
     return stack[0]
 
 #深度优先搜索实现全排列，一旦找到一个解就跳出递归 , 返回表达式
@@ -186,6 +349,7 @@ class Chess_board:
         self.num_col = 8
         self.empty_flag = 100
         self.board = [ [self.empty_flag for i in range(self.num_row)] for j in range(self.num_col) ] 
+        self.record = []
         
         #将棋子放在出始位置, 用正负区分不同颜色的棋子
         self.board[0][7] = 10
@@ -224,7 +388,7 @@ class Chess_board:
                 else :
                     x -= 1
                     y -= 1
-        self.origin_pos = self.board #每个位置的编号，用于后期计算分数
+        self.origin_pos = deepcopy(self.board) #每个位置的编号，用于后期计算分数
         
     #坐标相加
     def add(self,first,second):
@@ -342,28 +506,34 @@ class Chess_board:
         if value_on_the_way == False:
             return False
         value = self.get_value(start_position) #获取要移动的棋子的编号
+        global flag_error
         if value==get_txt(value_on_the_way):
             if debug:
                 print ('kua')
             return True
+        elif not flag_error:
+            pop_window('表达式值与所下棋子不一致')
         return False
 
     #获取某个位置的分数贡献
     def get_pos_score(self,pos):
         a,b = self.board[pos[0]][pos[1]],self.origin_pos[pos[0]][pos[1]]
+        if debug:
+            print ('pos',pos)
+            print ('a,b',(a,b))
         if a*b>0:
             return -1
         a = a if (a!=10 and a!=-10) else 0
         b = b if (b!=10 and b!=-10) else 0
         return abs(a*b)
 
-    #判断能否喊停并计算分数，不能喊停返回-1，-1   不然返回双方分数
-    def get_score(self):
+    def can_stop(self):
+    #判断能否喊停
         first,second = 0,0
         count_first,count_second = 0,0
         for i in range(self.num_row):
             for j in range(self.num_col):
-                if not self.empty([i,j]) and self.origin_pos[i][j]!=self.empty_flag:
+                if not self.empty((i,j)) and self.origin_pos[i][j]!=self.empty_flag:
                     score = self.get_pos_score((i,j))
                     if score==-1:
                         continue
@@ -373,9 +543,27 @@ class Chess_board:
                     else :
                         second += score
                         count_second += 1
-        if count_first==10 or count_second==10:
-            return first,second
-        return -1,-1
+        return count_first==10 or count_second==10
+
+    #判断能否喊停并计算分数，不能喊停返回-1，-1   不然返回双方分数
+    def get_score(self):
+        if debug:
+            print ('get in function:get_score')
+        first,second = 0,0
+        count_first,count_second = 0,0
+        for i in range(self.num_row):
+            for j in range(self.num_col):
+                if not self.empty((i,j)) and self.origin_pos[i][j]!=self.empty_flag:
+                    score = self.get_pos_score((i,j))
+                    if score==-1:
+                        continue
+                    if i<j :
+                        first += score
+                        count_first += 1
+                    else :
+                        second += score
+                        count_second += 1
+        return first,second
 
     def move(self,From,To):
         if self.empty(From) or not self.empty(To):
@@ -386,7 +574,11 @@ class Chess_board:
         return
 
     def regret(self):
-        pass
+        if len(self.record)==0:
+            return 1
+        From,To = self.record.pop()
+        self.move(To,From)
+        return 0
          
 
 class Image:
@@ -402,7 +594,7 @@ class Image:
     def __init__(self,filename,Size,pos=(0,0)):
 #        self.ima = pygame.image.load(filename).convert()
         try:
-            self.ima = pygame.image.load(filename).convert()
+            self.ima = pygame.image.load(filename).convert_alpha()
         except pygame.error:
             print ('can not load',filename,':')
             exit()
@@ -453,11 +645,16 @@ class FandJ:
         self.choose = 0,0
         self.show_list = [] #需要展示的图片
         self.clock = pygame.time.Clock()
-        self.show_score_flag = 0
+        self.show_score_flag = 1
+        self.myfont = pygame.font.SysFont('arial',score_size)
+        self.flag_show_help_info = 1
+        self.score = (0,0)
+        self.turn = 0 #0:red 1:blue
+        myfont2 = pygame.font.SysFont('fangsong',54)
+        self.turn_text = []
+        self.turn_text.append(myfont2.render(('红方下子'),True,(255,10,10)))
+        self.turn_text.append(myfont2.render(('蓝方下子'),True,(0,155,180)))
         pygame.display.set_caption("国际数棋")
-#        self.button_start = Image(button_start_filename)
-#        self.button_regret = Image(button_regret_filename)
-#        self.button_stop = Image(button_stop_filename)
 
     #根据已经求出的coordinate，和棋盘的现状，给出棋子像素坐标
     #!!!!!!!!!!画屏之前一定要先调用此函数
@@ -471,7 +668,7 @@ class FandJ:
 
     def restart(self):
         self.chess_board = Chess_board()
-        self.show_score_flag = 0
+        self.show_score_flag = 1
 
     def add_image(self,pic):
         self.screen.blit(pic.ima,(pic.x_corner,pic.y_corner))
@@ -488,32 +685,61 @@ class FandJ:
     #   按键
     def deal(self,event):
         if event.type == KEYDOWN:
+
             if event.key == key_regret:
                 self.chess_board.regret()
+
             elif event.key == key_start:
-                self.restart()
+                ret = query("重新开始？")
+                if ret:
+                    self.restart()
+
             elif event.key == key_stop:
-                self.score = self.chess_board.get_score()
-                if  self.score == (-1,-1):
-                    pass #没有到达终止条件
+                ret = query("叫停？")
+                if ret:
+                    if  not self.chess_board.can_stop():
+                        pop_window("不能叫停")
+                        if debug:
+                            print ('game not end')
+                        pass #没有到达终止条件
+                    else:
+                        self.score = self.chess_board.get_score()
+                        self.show_score_flag = 1
+                        pass #达到终止条件,结束游戏，打印分数
+
+            elif event.key == key_help:
+                self.flag_show_help_info = 1
+
+            elif event.key == key_quit:
+                if self.flag_show_help_info:
+                    self.flag_show_help_info = 0
                 else:
-                    if debug:
-                        print (self.score) 
-                    self.show_score_flag = 1
-                    pass #达到终止条件,结束游戏，打印分数
+                    ret = query("退出游戏")
+                    if ret:
+                        exit()
+
         elif event.type == MOUSEBUTTONDOWN:
             mouse_pos = pygame.mouse.get_pos()
+
             if self.mode == CHOOSE:
+                cnt = -1
                 for ball in self.balls:
+                    cnt += 1
                     if ball.in_image(mouse_pos):
+                        if (cnt<11 and self.turn==0) or (cnt>10 and self.turn==1):
+                            pop_window('not your turn')
+                            break
                         if debug:
                             print ('ball position',ball.x_corner,ball.y_corner)
                             print ('ball width and height:',(ball.width,ball.height))
                         self.choose_image.set_center((ball.x_center,ball.y_center))
+                        self.choose_image.ima = ball.ima
+                        self.choose_image.ima = pygame.transform.scale(self.choose_image.ima,(self.choose_image.width,self.choose_image.height))
                         self.show_list.append(self.choose_image)
                         self.mode = MOVE
                         self.choose = self.pixel_to_cor((ball.x_center,ball.y_center))
                         break
+
             elif self.mode == MOVE:
                 self.mode = CHOOSE
                 self.show_list.remove(self.choose_image)
@@ -529,15 +755,16 @@ class FandJ:
                             #TODO 弹窗，用户输入字符串表达式
                             if self.chess_board.is_legal(self.choose,self.pixel_to_cor(self.coordinate[i][j])):
                                 self.chess_board.move(self.choose,self.pixel_to_cor(self.coordinate[i][j]))
+                                self.chess_board.record.append((self.choose,self.pixel_to_cor(self.coordinate[i][j])))
+                                self.score = self.chess_board.get_score()
+                                self.turn ^= 1
                             else:
-                                print ('illegal move')
                                 pass
-                                #移动不合法
-                            
+                                #pop_window('illegal move')
                             break
         
-        elif event.type == MOUSEMOTION:
-            pass
+        #elif event.type == MOUSEMOTION:
+        #    pass
 
     def draw_board(self):
         ''' 画棋盘
@@ -549,13 +776,22 @@ class FandJ:
             pygame.draw.line(self.screen,BLACK,self.coordinate[i][0],self.coordinate[7][7-i])
 
     def show_score(self,score):
-        red = pygame.font.Font.render(str(self.score[0]))
-        blue = pygame.font.Font.render(str(self.score[1]))
+        #还有哪方下子
+        red = self.myfont.render(str(self.score[0]),True,(255,000,000))
+        blue = self.myfont.render(str(self.score[1]),True,(000,000,255))
         self.screen.blit(red,red_score)
         self.screen.blit(blue,blue_score)
+        self.screen.blit(self.turn_text[self.turn],(315,25))
+
+    def show_help(self):
+        help_font = pygame.font.SysFont('fangsong',27)
+        help_txt = help_font.render(help_info,True,(000,000,000),(255,255,205))
+        self.screen.blit(help_txt,help_position)
 
     #游戏运行主函数
     def run(self):
+        
+        pygame.event.set_allowed([KEYDOWN,MOUSEBUTTONDOWN])
         while True:
 
             self.clock.tick(FPS)
@@ -563,19 +799,23 @@ class FandJ:
             self.add_image(self.background)
             self.draw_board()
 
-            for event in pygame.event.get():
-                if event.type == QUIT:
-                    exit()
-                self.deal(event)
-
+            event = pygame.event.wait()
+            if event.type == QUIT:
+                exit()
+            self.deal(event)
+            
             if self.show_score_flag:
-                self.show_score()
+                self.show_score(self.score)
             
             self.update_balls_position()
             for ball in self.balls:
                 self.add_image(ball)
             for ima in self.show_list:
                 self.add_image(ima)
+            
+
+            if self.flag_show_help_info:
+                self.show_help()
             pygame.display.flip()
 
 if __name__ == '__main__':
