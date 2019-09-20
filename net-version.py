@@ -995,6 +995,7 @@ def main_client(client,game):
         elif 2 == msg["status"]:
             mutex.acquire()
             game.flag_game_over = 1
+            pop_window("对方退出游戏")
             mutex.release()
             msg = {
                 "type": 3,
