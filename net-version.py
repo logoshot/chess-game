@@ -855,6 +855,7 @@ class FandJ:
                         msg = msg.encode()
                         self.client.send(msg)
                         self.flag_game_over = 1
+                        self.client.close()
                         exit()
 
         elif event.type == MOUSEBUTTONDOWN:
@@ -911,7 +912,7 @@ class FandJ:
         blue = self.myfont.render(str(self.score[1]),True,(000,000,255))
         self.screen.blit(red,red_score)
         self.screen.blit(blue,blue_score)
-        self.screen.blit(self.turn_text[self.turn==self.side],(315,25))
+        self.screen.blit(self.turn_text[self.turn==self.side],(245,25))
 
 #    def show_help(self):
 #        help_font = pygame.font.SysFont('fangsong',27)
@@ -969,6 +970,8 @@ def main_client(client,game):
     msg = msg.encode()
     client.send(msg)
     while True:
+        if game.flag_game_over:
+            break
         try:
             msg = json.loads(client.recv(1024))
         except:
@@ -979,9 +982,6 @@ def main_client(client,game):
             dst = msg["dst"]["x"],msg["dst"]["y"]
             src = inverse_coordinate_transform(src)
             dst = inverse_coordinate_transform(dst)
-            if debug:
-                print ('src:',src)
-                print ('dst:',dst)
             mutex.acquire()
             game.move(src,dst,msg["exp"])
             mutex.release()
@@ -991,20 +991,40 @@ def main_client(client,game):
             game.game_id = msg["game_id"]
             game.counterpart_name = msg["counterpart_name"]
             mutex.release()
-        elif 1 < msg["status"]:
+        #退出游戏
+        elif 2 == msg["status"]:
             mutex.acquire()
             game.flag_game_over = 1
             mutex.release()
             msg = {
                 "type": 3,
-                "side": 0
+                "side": game.side
             }
             msg = json.dumps(msg)
             msg = msg.encode()
             client.send(msg)
             break
-        #elif 3 == msg["status"]:
-    client.close()
+        #超时
+        elif 3 == msg["status"]:
+            mutex.acquire()
+            game.flag_game_over = 1
+            if msg["side"] == game.side:
+                pop_window("你超时了")
+            else :
+                pop_window("对方超时")
+            mutex.release()
+            msg = {
+                "type": 3,
+                "side": game.side
+            }
+            msg = json.dumps(msg)
+            msg = msg.encode()
+            client.send(msg)
+            break
+    try:
+        client.close()
+    except:
+        pass
 
 if __name__ == '__main__':
     game = FandJ()
