@@ -1,0 +1,7 @@
+使图片适应窗口大小，通过获取窗口改变事件，并获取窗口大小，改变图片大小
+
+设置窗口可变大小
+screen = pygame.display.set_mode(size,pygame.RESIZABLE,32)  # 显示窗口
+
+改变图片大小
+mouse = pygame.transform.scale(mouse,(36,25))
